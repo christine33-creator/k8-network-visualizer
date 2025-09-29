@@ -1,7 +1,7 @@
 # Multi-stage build
 
 # Stage 1: Build the Go backend
-FROM golang:1.21-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 
 WORKDIR /app
 
