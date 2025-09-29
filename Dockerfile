@@ -32,7 +32,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 3: Build the CLI tool
-FROM golang:1.21-alpine AS cli-builder
+FROM golang:1.25-alpine AS cli-builder
 
 WORKDIR /app
 
