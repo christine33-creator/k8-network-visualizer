@@ -1,7 +1,6 @@
 # Multi-stage build
-
 # Stage 1: Build the Go backend
-FROM golang:1.21-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 
 WORKDIR /app
 
@@ -18,7 +17,7 @@ COPY backend/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o network-visualizer cmd/main.go
 
 # Stage 2: Build the React frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app
 
@@ -32,7 +31,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 3: Build the CLI tool
-FROM golang:1.21-alpine AS cli-builder
+FROM golang:1.25-alpine AS cli-builder
 
 WORKDIR /app
 

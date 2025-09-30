@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,7 +18,44 @@ import (
 	"github.com/christine33-creator/k8-network-visualizer/pkg/graph"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/k8s"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/prober"
+	corev1 "k8s.io/api/core/v1"
 )
+
+// DTO structures for API responses
+type PodDTO struct {
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Status    string            `json:"status"`
+	NodeName  string            `json:"node_name"`
+	PodIP     string            `json:"pod_ip"`
+	Labels    map[string]string `json:"labels"`
+	Ready     bool              `json:"ready,omitempty"`
+	Restarts  int32             `json:"restarts,omitempty"`
+}
+
+type ServiceDTO struct {
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Type      string            `json:"type"`
+	ClusterIP string            `json:"cluster_ip"`
+	Ports     []PortDTO         `json:"ports"`
+	Labels    map[string]string `json:"labels"`
+}
+
+type PortDTO struct {
+	Port       int32  `json:"port"`
+	TargetPort int32  `json:"target_port"`
+	Protocol   string `json:"protocol"`
+}
+
+type NodeDTO struct {
+	Name       string            `json:"name"`
+	Status     string            `json:"status"`
+	Roles      []string          `json:"roles"`
+	Version    string            `json:"version"`
+	InternalIP string            `json:"internal_ip"`
+	Labels     map[string]string `json:"labels"`
+}
 
 var (
 	kubeconfig     = flag.String("kubeconfig", "", "Path to kubeconfig file")
@@ -91,7 +129,7 @@ func main() {
 
 	// Serve static files for web UI
 	if *enableWebUI {
-		fs := http.FileServer(http.Dir("../frontend/build"))
+		fs := http.FileServer(http.Dir("./frontend/build"))
 		mux.Handle("/", fs)
 	}
 
@@ -139,8 +177,54 @@ func topologyHandler(engine *graph.Engine) http.HandlerFunc {
 func nodesHandler(collector *collector.Collector) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		
 		nodes := collector.GetNodes()
-		if err := json.NewEncoder(w).Encode(nodes); err != nil {
+		
+		// Convert to DTOs
+		nodeDTOs := make([]NodeDTO, 0, len(nodes))
+		for _, node := range nodes {
+			nodeDTO := NodeDTO{
+				Name:    node.Name,
+				Labels:  node.Labels,
+				Version: node.Status.NodeInfo.KubeletVersion,
+			}
+			
+			// Get node status
+			for _, condition := range node.Status.Conditions {
+				if condition.Type == corev1.NodeReady {
+					if condition.Status == corev1.ConditionTrue {
+						nodeDTO.Status = "Ready"
+					} else {
+						nodeDTO.Status = "NotReady"
+					}
+					break
+				}
+			}
+			
+			// Get roles from labels
+			roles := make([]string, 0)
+			for key := range node.Labels {
+				if strings.HasPrefix(key, "node-role.kubernetes.io/") {
+					role := strings.TrimPrefix(key, "node-role.kubernetes.io/")
+					if role != "" {
+						roles = append(roles, role)
+					}
+				}
+			}
+			nodeDTO.Roles = roles
+			
+			// Get internal IP
+			for _, address := range node.Status.Addresses {
+				if address.Type == corev1.NodeInternalIP {
+					nodeDTO.InternalIP = address.Address
+					break
+				}
+			}
+			
+			nodeDTOs = append(nodeDTOs, nodeDTO)
+		}
+		
+		if err := json.NewEncoder(w).Encode(nodeDTOs); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
@@ -149,8 +233,31 @@ func nodesHandler(collector *collector.Collector) http.HandlerFunc {
 func podsHandler(collector *collector.Collector) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		
 		pods := collector.GetPods()
-		if err := json.NewEncoder(w).Encode(pods); err != nil {
+		
+		// Convert to DTOs
+		podDTOs := make([]PodDTO, 0, len(pods))
+		for _, pod := range pods {
+			podDTO := PodDTO{
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+				Status:    string(pod.Status.Phase),
+				NodeName:  pod.Spec.NodeName,
+				PodIP:     pod.Status.PodIP,
+				Labels:    pod.Labels,
+			}
+			
+			// Calculate ready status
+			podDTO.Ready = isPodReady(pod)
+			
+			// Calculate restart count
+			podDTO.Restarts = getPodRestartCount(pod)
+			
+			podDTOs = append(podDTOs, podDTO)
+		}
+		
+		if err := json.NewEncoder(w).Encode(podDTOs); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
@@ -159,8 +266,34 @@ func podsHandler(collector *collector.Collector) http.HandlerFunc {
 func servicesHandler(collector *collector.Collector) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		
 		services := collector.GetServices()
-		if err := json.NewEncoder(w).Encode(services); err != nil {
+		
+		// Convert to DTOs
+		serviceDTOs := make([]ServiceDTO, 0, len(services))
+		for _, service := range services {
+			serviceDTO := ServiceDTO{
+				Name:      service.Name,
+				Namespace: service.Namespace,
+				Type:      string(service.Spec.Type),
+				ClusterIP: service.Spec.ClusterIP,
+				Labels:    service.Labels,
+				Ports:     make([]PortDTO, len(service.Spec.Ports)),
+			}
+			
+			// Convert ports
+			for i, port := range service.Spec.Ports {
+				serviceDTO.Ports[i] = PortDTO{
+					Port:       port.Port,
+					TargetPort: port.TargetPort.IntVal,
+					Protocol:   string(port.Protocol),
+				}
+			}
+			
+			serviceDTOs = append(serviceDTOs, serviceDTO)
+		}
+		
+		if err := json.NewEncoder(w).Encode(serviceDTOs); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
@@ -213,4 +346,22 @@ func websocketHandler(engine *graph.Engine) http.HandlerFunc {
 		// TODO: Implement WebSocket handler for real-time updates
 		http.Error(w, "WebSocket not yet implemented", http.StatusNotImplemented)
 	}
+}
+
+// Helper functions for pod status calculation
+func isPodReady(pod *corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func getPodRestartCount(pod *corev1.Pod) int32 {
+	var totalRestarts int32
+	for _, containerStatus := range pod.Status.ContainerStatuses {
+		totalRestarts += containerStatus.RestartCount
+	}
+	return totalRestarts
 }

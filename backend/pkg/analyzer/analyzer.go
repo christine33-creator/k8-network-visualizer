@@ -86,7 +86,7 @@ func (a *Analyzer) Start(ctx context.Context, collector *collector.Collector, pr
 }
 
 // analyze performs comprehensive network analysis
-func (a *Analyzer) analyze(collector *collector.Collector, prober *prober.Prober) {
+func (a *Analyzer) analyze(collector *collector.Collector, p *prober.Prober) {
 	// Clear previous issues
 	a.mu.Lock()
 	a.issues = make([]NetworkIssue, 0)
@@ -96,12 +96,12 @@ func (a *Analyzer) analyze(collector *collector.Collector, prober *prober.Prober
 	a.updateGraph(collector)
 
 	// Perform various analyses
-	a.analyzeConnectivity(prober)
+	a.analyzeConnectivity(p)
 	a.analyzeNetworkPolicies(collector)
 	a.analyzePodHealth(collector)
 	a.analyzeServiceEndpoints(collector)
 	a.analyzeCIDROverlaps(collector)
-	a.analyzeLatency(prober)
+	a.analyzeLatency(p)
 }
 
 // updateGraph updates the graph engine with latest data
@@ -139,8 +139,8 @@ func (a *Analyzer) updateGraph(collector *collector.Collector) {
 }
 
 // analyzeConnectivity checks for connectivity issues
-func (a *Analyzer) analyzeConnectivity(prober *prober.Prober) {
-	failedProbes := prober.GetFailedProbes()
+func (a *Analyzer) analyzeConnectivity(p *prober.Prober) {
+	failedProbes := p.GetFailedProbes()
 	
 	// Group failed probes by target
 	failureMap := make(map[string][]prober.ProbeResult)
@@ -393,8 +393,8 @@ func (a *Analyzer) analyzeCIDROverlaps(collector *collector.Collector) {
 }
 
 // analyzeLatency checks for high latency issues
-func (a *Analyzer) analyzeLatency(prober *prober.Prober) {
-	results := prober.GetRecentResults(5 * time.Minute)
+func (a *Analyzer) analyzeLatency(p *prober.Prober) {
+	results := p.GetRecentResults(5 * time.Minute)
 	
 	// Group by target and calculate average latency
 	latencyMap := make(map[string][]int64)

@@ -58,7 +58,7 @@ spec:
       containers:
       - name: backend
         image: christine33creator/k8s-network-visualizer:latest
-        imagePullPolicy: Always
+        imagePullPolicy: Never
         ports:
         - containerPort: 8080
           name: http

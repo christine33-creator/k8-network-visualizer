@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
-	"time"
 )
 
 // Command represents a CLI command
