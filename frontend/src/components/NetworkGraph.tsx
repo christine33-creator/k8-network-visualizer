@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useEffect, useRef, useState } from "react";
 import cytoscape from "cytoscape";
 import type { Core } from "cytoscape";
