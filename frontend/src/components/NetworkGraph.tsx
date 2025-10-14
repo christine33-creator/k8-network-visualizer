@@ -1,15 +1,30 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import cytoscape from "cytoscape";
 import type { Core } from "cytoscape";
+// @ts-ignore - cytoscape-fcose doesn't have type definitions
 import fcose from "cytoscape-fcose";
-import { Box, Paper, Typography, Chip, Stack } from "@mui/material";
+import { 
+  Box, 
+  Paper, 
+  Typography, 
+  Chip, 
+  Stack,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  TextField,
+  Button,
+  Checkbox,
+  FormControlLabel,
+  SelectChangeEvent
+} from "@mui/material";
+import FilterListIcon from '@mui/icons-material/FilterList';
+import ClearIcon from '@mui/icons-material/Clear';
 
 // Register the fcose layout
+// @ts-ignore - Type compatibility issue with cytoscape versions
 cytoscape.use(fcose);
-
-// Fallback type declaration if @types/cytoscape-fcose is missing
-// Remove if you install @types/cytoscape-fcose
-declare module "cytoscape-fcose";
 
 interface GraphNode {
   id: string;
@@ -54,6 +69,20 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const [selectedElement, setSelectedElement] = useState<any>(null);
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    nodeType: 'all',
+    healthStatus: 'all',
+    namespace: 'all',
+    searchQuery: '',
+    showOnlyIssues: false,
+    minLatency: 0,
+    showPacketLoss: false,
+  });
+  
+  const [namespaces, setNamespaces] = useState<string[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
 
   const getNodeColor = (node: GraphNode): string => {
     const healthColors: Record<GraphNode["health"], string> = {
@@ -66,7 +95,7 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
   };
 
   const getNodeShape = (type: GraphNode["type"]) => {
-    const shapes: Record<GraphNode["type"], cytoscape.NodeShape> = {
+    const shapes: Record<GraphNode["type"], any> = {
       pod: "ellipse",
       service: "diamond",
       node: "rectangle",
@@ -93,6 +122,106 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       policy: "dotted",
     };
     return styles[type];
+  };
+
+  // Extract namespaces from topology
+  useEffect(() => {
+    if (topology) {
+      const ns = new Set<string>();
+      topology.nodes.forEach(node => {
+        if (node.namespace) ns.add(node.namespace);
+      });
+      setNamespaces(Array.from(ns).sort());
+    }
+  }, [topology]);
+
+  // Apply filters to graph
+  const applyFilters = useCallback(() => {
+    if (!cyRef.current) return;
+    
+    const cy = cyRef.current;
+    
+    // Reset visibility
+    cy.elements().style('display', 'element');
+    
+    // Apply node filters
+    cy.nodes().forEach((node: any) => {
+      let shouldHide = false;
+      
+      // Filter by node type
+      if (filters.nodeType !== 'all' && node.data('nodeType') !== filters.nodeType) {
+        shouldHide = true;
+      }
+      
+      // Filter by health status
+      if (filters.healthStatus !== 'all' && node.data('health') !== filters.healthStatus) {
+        shouldHide = true;
+      }
+      
+      // Filter by namespace
+      if (filters.namespace !== 'all' && node.data('namespace') !== filters.namespace) {
+        shouldHide = true;
+      }
+      
+      // Filter by search query
+      if (filters.searchQuery && !node.data('label').toLowerCase().includes(filters.searchQuery.toLowerCase())) {
+        shouldHide = true;
+      }
+      
+      // Show only issues
+      if (filters.showOnlyIssues && node.data('health') === 'healthy') {
+        shouldHide = true;
+      }
+      
+      if (shouldHide) {
+        node.style('display', 'none');
+      }
+    });
+    
+    // Apply edge filters
+    cy.edges().forEach((edge: any) => {
+      let shouldHide = false;
+      
+      // Hide edges connected to hidden nodes
+      if (edge.source().style('display') === 'none' || edge.target().style('display') === 'none') {
+        shouldHide = true;
+      }
+      
+      // Filter by minimum latency
+      if (filters.minLatency > 0 && (!edge.data('latency') || edge.data('latency') < filters.minLatency)) {
+        shouldHide = true;
+      }
+      
+      // Show only packet loss
+      if (filters.showPacketLoss && !edge.data('packet_loss')) {
+        shouldHide = true;
+      }
+      
+      if (shouldHide) {
+        edge.style('display', 'none');
+      }
+    });
+  }, [filters]);
+
+  // Apply filters when they change
+  useEffect(() => {
+    applyFilters();
+  }, [filters, applyFilters]);
+
+  const handleFilterChange = (key: string, value: any) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  const resetFilters = () => {
+    setFilters({
+      nodeType: 'all',
+      healthStatus: 'all',
+      namespace: 'all',
+      searchQuery: '',
+      showOnlyIssues: false,
+      minLatency: 0,
+      showPacketLoss: false,
+    });
   };
 
   useEffect(() => {
@@ -134,11 +263,11 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
         {
           selector: "node",
           style: {
-            "background-color": (ele) => getNodeColor(ele.data()),
+            "background-color": (ele: any) => getNodeColor(ele.data()),
             label: "data(label)",
             "text-valign": "center",
             "text-halign": "center",
-            shape: (ele) => getNodeShape(ele.data("nodeType")),
+            shape: (ele: any) => getNodeShape(ele.data("nodeType")),
             width: 40,
             height: 40,
             "font-size": "10px",
@@ -154,12 +283,12 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
           selector: "edge",
           style: {
             width: 2,
-            "line-color": (ele) => getEdgeColor(ele.data()),
-            "target-arrow-color": (ele) => getEdgeColor(ele.data()),
+            "line-color": (ele: any) => getEdgeColor(ele.data()),
+            "target-arrow-color": (ele: any) => getEdgeColor(ele.data()),
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
-            "line-style": (ele) => getEdgeStyle(ele.data("edgeType")),
-            label: (ele) =>
+            "line-style": (ele: any) => getEdgeStyle(ele.data("edgeType")),
+            label: (ele: any) =>
               ele.data("latency") ? `${ele.data("latency")}ms` : "",
             "font-size": "8px",
             "text-rotation": "autorotate",

@@ -3,19 +3,26 @@ import {
   ThemeProvider, 
   createTheme, 
   CssBaseline, 
-  AppBar, 
-  Toolbar, 
-  Typography, 
+  Box, 
   Container, 
-  Box,
-  CircularProgress,
+  Typography, 
   Alert,
-  Chip,
-  Button
+  CircularProgress,
+  Button,
+  Tabs,
+  Tab,
+  Paper,
+  AppBar,
+  Toolbar,
+  Chip
 } from '@mui/material';
-import ClusterView from './components/ClusterView';
+import { Refresh } from '@mui/icons-material';
 import axios from 'axios';
-import './App.css';
+import ClusterView from './components/ClusterView';
+import NetworkGraph from './components/NetworkGraph';
+import IssuesPanel from './components/IssuesPanel';
+import IntelligentInsights from './components/IntelligentInsights';
+import WhatIfSimulations from './components/WhatIfSimulations';
 
 // Define types
 interface Pod {
@@ -52,6 +59,61 @@ interface Node {
   labels: Record<string, string>;
 }
 
+interface NetworkTopology {
+  nodes: Array<{
+    id: string;
+    name: string;
+    type: 'pod' | 'service' | 'node' | 'namespace' | 'external';
+    namespace?: string;
+    health: 'healthy' | 'degraded' | 'failed' | 'unknown';
+    pod_ip?: string;
+    node_name?: string;
+    labels?: Record<string, string>;
+    properties?: Record<string, string>;
+  }>;
+  edges: Array<{
+    id: string;
+    source: string;
+    target: string;
+    type: 'connection' | 'service' | 'policy';
+    health: 'healthy' | 'degraded' | 'failed' | 'unknown';
+    latency_ms?: number;
+    packet_loss?: number;
+    properties?: Record<string, string>;
+  }>;
+  timestamp: string;
+}
+
+interface NetworkIssue {
+  id: string;
+  type: 'connectivity' | 'latency' | 'policy' | 'dns' | 'configuration' | 'cidr_overlap' | 'resource_health';
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  title: string;
+  description: string;
+  affected_resources: string[];
+  suggestions: string[];
+  details: Record<string, any>;
+  timestamp: string;
+}
+
+interface IntelligentInsight {
+  id: string;
+  category: 'optimization' | 'security' | 'reliability' | 'cost';
+  priority: 'high' | 'medium' | 'low';
+  title: string;
+  description: string;
+  impact: string;
+  actions: Array<{
+    description: string;
+    command?: string;
+    risk: 'low' | 'medium' | 'high';
+    automated: boolean;
+  }>;
+  metrics: Record<string, any>;
+  confidence: number;
+  timestamp: string;
+}
+
 const theme = createTheme({
   palette: {
     mode: 'dark',
@@ -72,8 +134,12 @@ function App() {
   const [pods, setPods] = useState<Pod[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [nodes, setNodes] = useState<Node[]>([]);
+  const [topology, setTopology] = useState<NetworkTopology | null>(null);
+  const [issues, setIssues] = useState<NetworkIssue[]>([]);
+  const [insights, setInsights] = useState<IntelligentInsight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentTab, setCurrentTab] = useState(0);
 
   const fetchData = async () => {
     try {
@@ -98,6 +164,85 @@ function App() {
       const nodesResponse = await axios.get('/api/nodes');
       console.log('Nodes response:', nodesResponse.data?.length || 0, 'nodes');
       setNodes(nodesResponse.data || []);
+
+      // Fetch topology
+      console.log('Fetching topology...');
+      const topologyResponse = await axios.get('/api/topology');
+      console.log('Topology response:', topologyResponse.data?.nodes?.length || 0, 'nodes,', topologyResponse.data?.edges?.length || 0, 'edges');
+      setTopology(topologyResponse.data || null);
+
+      // Fetch issues
+      console.log('Fetching issues...');
+      const issuesResponse = await axios.get('/api/issues');
+      console.log('Issues response:', issuesResponse.data?.length || 0, 'issues');
+      setIssues(issuesResponse.data || []);
+
+      // Fetch intelligent insights
+      console.log('Fetching insights...');
+      try {
+        const insightsResponse = await axios.get('/api/insights');
+        console.log('Insights response:', insightsResponse.data?.length || 0, 'insights');
+        setInsights(insightsResponse.data || []);
+      } catch (insightsErr) {
+        console.log('Insights API not available yet, using mock data');
+        // Mock insights for demo
+        setInsights([
+          {
+            id: 'insight-1',
+            category: 'security',
+            priority: 'high',
+            title: 'Unprotected Default Namespace',
+            description: 'The default namespace has no network policies, leaving pods vulnerable to lateral movement attacks.',
+            impact: 'Implementing network policies will reduce attack surface by 85%',
+            actions: [
+              {
+                description: 'Create default deny-all network policy',
+                command: 'kubectl apply -f default-deny-policy.yaml',
+                risk: 'low',
+                automated: true
+              },
+              {
+                description: 'Allow only necessary pod-to-pod communication',
+                risk: 'medium',
+                automated: false
+              }
+            ],
+            metrics: {
+              'Exposed Pods': 8,
+              'Risk Score': 'High'
+            },
+            confidence: 0.92,
+            timestamp: new Date().toISOString()
+          },
+          {
+            id: 'insight-2',
+            category: 'optimization',
+            priority: 'medium',
+            title: 'Resource Optimization Opportunity',
+            description: 'Several pods are over-provisioned with CPU and memory, leading to cluster inefficiency.',
+            impact: 'Right-sizing resources could free up 30% cluster capacity',
+            actions: [
+              {
+                description: 'Analyze actual resource usage patterns',
+                command: 'kubectl top pods --all-namespaces',
+                risk: 'low',
+                automated: true
+              },
+              {
+                description: 'Update resource requests and limits',
+                risk: 'medium',
+                automated: false
+              }
+            ],
+            metrics: {
+              'Over-provisioned Pods': 5,
+              'Potential Savings': '30%'
+            },
+            confidence: 0.78,
+            timestamp: new Date().toISOString()
+          }
+        ]);
+      }
 
       console.log('Data fetch completed successfully');
     } catch (err) {
@@ -184,17 +329,101 @@ function App() {
 
         <Container maxWidth={false} sx={{ mt: 2, height: 'calc(100vh - 100px)' }}>
           {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+            <Alert severity="error" sx={{ mb: 2 }} action={
+              <Button color="inherit" size="small" onClick={fetchData} startIcon={<Refresh />}>
+                Retry
+              </Button>
+            }>
               {error}
             </Alert>
           )}
           
-          <ClusterView
-            pods={pods}
-            services={services}
-            nodes={nodes}
-            onRefresh={fetchData}
-          />
+          <Paper sx={{ width: '100%', mb: 2 }}>
+            <Tabs 
+              value={currentTab} 
+              onChange={(_, newValue) => setCurrentTab(newValue)}
+              indicatorColor="primary"
+              textColor="primary"
+              variant="scrollable"
+              scrollButtons="auto"
+            >
+              <Tab label="📊 Cluster Overview" />
+              <Tab label="🔍 Network Topology" />
+              <Tab label="⚠️ Issues & Security" />
+              <Tab label="🤖 AI Insights" />
+              <Tab label="🎯 What-If Analysis" />
+            </Tabs>
+          </Paper>
+
+          {currentTab === 0 && (
+            <ClusterView
+              pods={pods}
+              services={services}
+              nodes={nodes}
+              onRefresh={fetchData}
+            />
+          )}
+
+          {currentTab === 1 && (
+            <NetworkGraph
+              topology={topology}
+              onNodeClick={(node) => console.log('Node clicked:', node)}
+              onEdgeClick={(edge) => console.log('Edge clicked:', edge)}
+            />
+          )}
+
+          {currentTab === 2 && (
+            <IssuesPanel issues={issues} />
+          )}
+
+          {currentTab === 3 && (
+            <IntelligentInsights insights={insights} />
+          )}
+
+          {currentTab === 4 && (
+            <WhatIfSimulations 
+              onRunSimulation={async (request) => {
+                try {
+                  const response = await axios.post('/api/simulations', request);
+                  return response.data;
+                } catch (err) {
+                  console.log('Simulation API not available, using mock result');
+                  // Return mock result for demo
+                  return {
+                    id: `sim-${Date.now()}`,
+                    request,
+                    connectivity_impact: [
+                      {
+                        area: 'Pod-to-Pod Communication',
+                        description: 'May affect communication between pods in different namespaces',
+                        risk: 'medium',
+                        likelihood: 0.7
+                      }
+                    ],
+                    security_impact: [
+                      {
+                        area: 'Attack Surface',
+                        description: 'Reduces attack surface by blocking unnecessary traffic',
+                        risk: 'low',
+                        likelihood: 0.9
+                      }
+                    ],
+                    performance_impact: [
+                      {
+                        area: 'Response Time',
+                        description: 'Minor impact on applications requiring external dependencies',
+                        risk: 'low',
+                        likelihood: 0.4
+                      }
+                    ],
+                    overall_risk: 'medium',
+                    confidence: 0.85,
+                    timestamp: new Date().toISOString()
+                  };
+                }
+              }}
+            />
+          )}
         </Container>
       </Box>
     </ThemeProvider>

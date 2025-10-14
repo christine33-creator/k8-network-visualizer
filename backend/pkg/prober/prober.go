@@ -3,6 +3,7 @@ package prober
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"sync"
@@ -11,6 +12,9 @@ import (
 	"github.com/christine33-creator/k8-network-visualizer/pkg/k8s"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // ProbeResult represents the result of a connectivity probe
@@ -26,6 +30,7 @@ type ProbeResult struct {
 	ProbeType   string    `json:"probe_type"` // TCP, HTTP, gRPC
 	Success     bool      `json:"success"`
 	Latency     int64     `json:"latency_ms"`
+	PacketLoss  float64   `json:"packet_loss"` // Percentage of packet loss
 	Error       string    `json:"error,omitempty"`
 	StatusCode  int       `json:"status_code,omitempty"` // For HTTP probes
 }
@@ -281,4 +286,100 @@ func (p *Prober) GetFailedProbes() []ProbeResult {
 	}
 
 	return failed
+}
+
+// probeGRPC performs a gRPC health check probe
+func (p *Prober) probeGRPC(sourcePod corev1.Pod, targetSvc corev1.Service, port corev1.ServicePort) ProbeResult {
+	result := ProbeResult{
+		Timestamp:  time.Now(),
+		SourcePod:  sourcePod.Name,
+		SourceNS:   sourcePod.Namespace,
+		TargetSvc:  targetSvc.Name,
+		TargetNS:   targetSvc.Namespace,
+		TargetIP:   targetSvc.Spec.ClusterIP,
+		TargetPort: port.Port,
+		ProbeType:  "gRPC",
+	}
+
+	start := time.Now()
+	
+	address := fmt.Sprintf("%s:%d", targetSvc.Spec.ClusterIP, port.Port)
+	conn, err := grpc.Dial(address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTimeout(5*time.Second),
+	)
+	
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+		result.Latency = time.Since(start).Milliseconds()
+		return result
+	}
+	defer conn.Close()
+
+	client := healthpb.NewHealthClient(conn)
+	resp, err := client.Check(context.Background(), &healthpb.HealthCheckRequest{})
+	
+	result.Latency = time.Since(start).Milliseconds()
+	
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+	} else {
+		result.Success = resp.Status == healthpb.HealthCheckResponse_SERVING
+		if !result.Success {
+			result.Error = fmt.Sprintf("Service status: %s", resp.Status.String())
+		}
+	}
+
+	return result
+}
+
+// detectPacketLoss performs multiple probes to detect packet loss
+func (p *Prober) detectPacketLoss(sourcePod corev1.Pod, targetIP string, targetPort int32) float64 {
+	probes := 10
+	failed := 0
+	
+	for i := 0; i < probes; i++ {
+		address := fmt.Sprintf("%s:%d", targetIP, targetPort)
+		conn, err := net.DialTimeout("tcp", address, 1*time.Second)
+		
+		if err != nil {
+			failed++
+		} else {
+			conn.Close()
+		}
+		
+		// Small delay between probes
+		time.Sleep(100 * time.Millisecond)
+	}
+	
+	return float64(failed) / float64(probes) * 100
+}
+
+// CalculatePacketLoss calculates packet loss for recent probes
+func (p *Prober) CalculatePacketLoss(targetIP string, duration time.Duration) float64 {
+	recent := p.GetRecentResults(duration)
+	
+	if len(recent) == 0 {
+		return 0
+	}
+	
+	failed := 0
+	total := 0
+	
+	for _, result := range recent {
+		if result.TargetIP == targetIP {
+			total++
+			if !result.Success {
+				failed++
+			}
+		}
+	}
+	
+	if total == 0 {
+		return 0
+	}
+	
+	return float64(failed) / float64(total) * 100
 }

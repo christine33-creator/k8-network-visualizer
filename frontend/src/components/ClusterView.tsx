@@ -296,21 +296,48 @@ const ClusterView: React.FC<ClusterViewProps> = ({ pods, services, nodes, onRefr
                       }}
                     >
                       <ListItemIcon>
-                        <Chip
-                          label={pod.status}
-                          size="small"
-                          color={getStatusColor(pod.status) as any}
-                        />
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                          <Chip
+                            label={pod.status}
+                            size="small"
+                            color={getStatusColor(pod.status) as any}
+                          />
+                          {pod.ready === false && (
+                            <Chip
+                              label="Not Ready"
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                            />
+                          )}
+                          {pod.restarts && pod.restarts > 0 && (
+                            <Chip
+                              label={`${pod.restarts} restarts`}
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                            />
+                          )}
+                        </Box>
                       </ListItemIcon>
                       <ListItemText
-                        primary={pod.name}
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" fontWeight="medium">
+                              {pod.name}
+                            </Typography>
+                            {pod.ready && (
+                              <Chip label="Ready" size="small" color="success" variant="outlined" />
+                            )}
+                          </Box>
+                        }
                         secondary={
                           <Box>
                             <Typography variant="caption" display="block">
                               {getPodPurpose(pod)}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              IP: {pod.pod_ip} | Node: {pod.node_name}
+                              🌐 IP: {pod.pod_ip || 'N/A'} | 🖥️ Node: {pod.node_name || 'N/A'}
                             </Typography>
                           </Box>
                         }
@@ -346,24 +373,27 @@ const ClusterView: React.FC<ClusterViewProps> = ({ pods, services, nodes, onRefr
                       }}
                     >
                       <ListItemIcon>
-                        <Chip
-                          label={service.type}
-                          size="small"
-                          color={getServiceTypeColor(service.type) as any}
-                        />
+                        <Hub color="primary" />
                       </ListItemIcon>
                       <ListItemText
-                        primary={service.name}
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" fontWeight="medium">
+                              {service.name}
+                            </Typography>
+                            <Chip label={service.type} size="small" color={getServiceTypeColor(service.type) as any} variant="outlined" />
+                          </Box>
+                        }
                         secondary={
                           <Box>
                             <Typography variant="caption" display="block">
                               {getServicePurpose(service)}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Cluster IP: {service.cluster_ip}
+                              🔗 Cluster IP: {service.cluster_ip || 'N/A'}
                             </Typography>
                             <Typography variant="caption" color="text.secondary" display="block">
-                              Ports: {service.ports?.map(p => `${p.port}:${p.target_port}/${p.protocol}`).join(', ')}
+                              🚪 Ports: {service.ports?.map(p => `${p.port}:${p.target_port}/${p.protocol}`).join(', ') || 'N/A'}
                             </Typography>
                           </Box>
                         }

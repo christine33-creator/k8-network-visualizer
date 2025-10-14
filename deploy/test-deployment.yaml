@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: network-visualizer
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: network-visualizer
+  namespace: network-visualizer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: network-visualizer
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes", "services", "endpoints", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: network-visualizer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: network-visualizer
+subjects:
+- kind: ServiceAccount
+  name: network-visualizer
+  namespace: network-visualizer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-visualizer
+  namespace: network-visualizer
+  labels:
+    app: network-visualizer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: network-visualizer
+  template:
+    metadata:
+      labels:
+        app: network-visualizer
+    spec:
+      serviceAccountName: network-visualizer
+      containers:
+      - name: backend
+        image: k8s-network-visualizer:test
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PROBE_INTERVAL
+          value: "30s"
+        - name: ENABLE_UI
+          value: "true"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: network-visualizer
+  namespace: network-visualizer
+  labels:
+    app: network-visualizer
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: network-visualizer

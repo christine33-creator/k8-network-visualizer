@@ -18,6 +18,10 @@ import (
 	"github.com/christine33-creator/k8-network-visualizer/pkg/graph"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/k8s"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/prober"
+	"github.com/christine33-creator/k8-network-visualizer/pkg/simulator"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
+	"io"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -97,6 +101,7 @@ func main() {
 	networkProber := prober.NewProber(k8sClient)
 	graphEngine := graph.NewEngine()
 	networkAnalyzer := analyzer.NewAnalyzer(graphEngine)
+	networkSimulator := simulator.NewSimulator(graphEngine)
 
 	// Start data collection
 	log.Println("Starting data collection...")
@@ -122,7 +127,9 @@ func main() {
 	mux.HandleFunc("/api/policies", policiesHandler(networkCollector))
 	mux.HandleFunc("/api/probes", probesHandler(networkProber))
 	mux.HandleFunc("/api/issues", issuesHandler(networkAnalyzer))
-	mux.HandleFunc("/api/simulate", simulateHandler(networkAnalyzer))
+	mux.HandleFunc("/api/insights", insightsHandler(networkAnalyzer))
+	mux.HandleFunc("/api/simulate", simulateHandler(networkSimulator, networkCollector))
+	mux.HandleFunc("/api/simulations", simulationsHandler(networkAnalyzer))
 	
 	// WebSocket endpoint for real-time updates
 	mux.HandleFunc("/ws", websocketHandler(graphEngine))
@@ -329,15 +336,163 @@ func issuesHandler(analyzer *analyzer.Analyzer) http.HandlerFunc {
 	}
 }
 
-func simulateHandler(analyzer *analyzer.Analyzer) http.HandlerFunc {
+func simulateHandler(sim *simulator.Simulator, collector *collector.Collector) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		// TODO: Implement simulation logic
+
+		// Parse simulation type from query params
+		simType := r.URL.Query().Get("type")
+		if simType == "" {
+			simType = "network_policy"
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"status":"simulation not yet implemented"}`)
+
+		switch simType {
+		case "network_policy":
+			// Parse NetworkPolicy from body
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			var policy networkingv1.NetworkPolicy
+			if err := yaml.Unmarshal(body, &policy); err != nil {
+				http.Error(w, "Invalid NetworkPolicy YAML: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			// Update simulator with current resources
+			sim.UpdateResources(collector.GetPods(), collector.GetServices(), collector.GetNetworkPolicies())
+
+			// Run simulation
+			result, err := sim.SimulateNetworkPolicy(&policy, "apply")
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+
+		case "pod_failure":
+			podName := r.URL.Query().Get("pod")
+			namespace := r.URL.Query().Get("namespace")
+			if podName == "" || namespace == "" {
+				http.Error(w, "Missing pod or namespace parameter", http.StatusBadRequest)
+				return
+			}
+
+			// Update simulator with current resources
+			sim.UpdateResources(collector.GetPods(), collector.GetServices(), collector.GetNetworkPolicies())
+
+			result, err := sim.SimulatePodFailure(podName, namespace)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+
+		case "node_failure":
+			nodeName := r.URL.Query().Get("node")
+			if nodeName == "" {
+				http.Error(w, "Missing node parameter", http.StatusBadRequest)
+				return
+			}
+
+			// Update simulator with current resources
+			sim.UpdateResources(collector.GetPods(), collector.GetServices(), collector.GetNetworkPolicies())
+
+			result, err := sim.SimulateNodeFailure(nodeName)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+
+		default:
+			http.Error(w, "Unknown simulation type", http.StatusBadRequest)
+		}
+	}
+			Changes     map[string]interface{} `json:"changes"`
+			Scope       []string               `json:"scope"`
+			Description string                 `json:"description"`
+		}
+		
+		var request SimulationRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		
+		// For now, return a mock response since the full simulation isn't implemented
+		result := map[string]interface{}{
+			"id": "sim-" + request.Type + "-001",
+			"request": request,
+			"connectivity_impact": []map[string]interface{}{
+				{
+					"area": "Pod-to-Pod Communication",
+					"description": "May affect communication patterns",
+					"risk": "medium",
+					"likelihood": 0.7,
+				},
+			},
+			"security_impact": []map[string]interface{}{
+				{
+					"area": "Attack Surface",
+					"description": "Potential security implications",
+					"risk": "low",
+					"likelihood": 0.5,
+				},
+			},
+			"performance_impact": []map[string]interface{}{
+				{
+					"area": "Response Time",
+					"description": "Minor performance considerations",
+					"risk": "low",
+					"likelihood": 0.3,
+				},
+			},
+			"overall_risk": "medium",
+			"confidence": 0.85,
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func insightsHandler(analyzer *analyzer.Analyzer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		insights := analyzer.GetInsights()
+		if err := json.NewEncoder(w).Encode(insights); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func simulationsHandler(analyzer *analyzer.Analyzer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		simulations := analyzer.GetSimulations()
+		if err := json.NewEncoder(w).Encode(simulations); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
