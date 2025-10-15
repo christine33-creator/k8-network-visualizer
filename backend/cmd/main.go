@@ -19,9 +19,6 @@ import (
 	"github.com/christine33-creator/k8-network-visualizer/pkg/k8s"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/prober"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/simulator"
-	networkingv1 "k8s.io/api/networking/v1"
-	"k8s.io/apimachinery/pkg/util/yaml"
-	"io"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -342,89 +339,10 @@ func simulateHandler(sim *simulator.Simulator, collector *collector.Collector) h
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
-		// Parse simulation type from query params
-		simType := r.URL.Query().Get("type")
-		if simType == "" {
-			simType = "network_policy"
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-
-		switch simType {
-		case "network_policy":
-			// Parse NetworkPolicy from body
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			var policy networkingv1.NetworkPolicy
-			if err := yaml.Unmarshal(body, &policy); err != nil {
-				http.Error(w, "Invalid NetworkPolicy YAML: "+err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			// Update simulator with current resources
-			sim.UpdateResources(collector.GetPods(), collector.GetServices(), collector.GetNetworkPolicies())
-
-			// Run simulation
-			result, err := sim.SimulateNetworkPolicy(&policy, "apply")
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			if err := json.NewEncoder(w).Encode(result); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-
-		case "pod_failure":
-			podName := r.URL.Query().Get("pod")
-			namespace := r.URL.Query().Get("namespace")
-			if podName == "" || namespace == "" {
-				http.Error(w, "Missing pod or namespace parameter", http.StatusBadRequest)
-				return
-			}
-
-			// Update simulator with current resources
-			sim.UpdateResources(collector.GetPods(), collector.GetServices(), collector.GetNetworkPolicies())
-
-			result, err := sim.SimulatePodFailure(podName, namespace)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			if err := json.NewEncoder(w).Encode(result); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-
-		case "node_failure":
-			nodeName := r.URL.Query().Get("node")
-			if nodeName == "" {
-				http.Error(w, "Missing node parameter", http.StatusBadRequest)
-				return
-			}
-
-			// Update simulator with current resources
-			sim.UpdateResources(collector.GetPods(), collector.GetServices(), collector.GetNetworkPolicies())
-
-			result, err := sim.SimulateNodeFailure(nodeName)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			if err := json.NewEncoder(w).Encode(result); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-
-		default:
-			http.Error(w, "Unknown simulation type", http.StatusBadRequest)
-		}
-	}
+		
+		// Define the struct locally to avoid import issues
+		type SimulationRequest struct {
+			Type        string                 `json:"type"`
 			Changes     map[string]interface{} `json:"changes"`
 			Scope       []string               `json:"scope"`
 			Description string                 `json:"description"`

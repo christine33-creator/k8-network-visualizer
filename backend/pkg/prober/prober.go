@@ -3,7 +3,6 @@ package prober
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/http"
 	"sync"
