@@ -23,6 +23,7 @@ import NetworkGraph from './components/NetworkGraph';
 import IssuesPanel from './components/IssuesPanel';
 import IntelligentInsights from './components/IntelligentInsights';
 import WhatIfSimulations from './components/WhatIfSimulations';
+import UnifiedDashboard from './components/UnifiedDashboard';
 
 // Define types
 interface Pod {
@@ -352,6 +353,7 @@ function App() {
               <Tab label="⚠️ Issues & Security" />
               <Tab label="🤖 AI Insights" />
               <Tab label="🎯 What-If Analysis" />
+              <Tab label="🔗 Unified Observability" />
             </Tabs>
           </Paper>
 
@@ -423,6 +425,10 @@ function App() {
                 }
               }}
             />
+          )}
+
+          {currentTab === 5 && (
+            <UnifiedDashboard />
           )}
         </Container>
       </Box>

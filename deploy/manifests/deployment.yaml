@@ -57,7 +57,7 @@ spec:
       serviceAccountName: network-visualizer
       containers:
       - name: backend
-        image: christine33creator/k8s-network-visualizer:latest
+        image: k8s-network-visualizer:latest
         imagePullPolicy: Never
         ports:
         - containerPort: 8080
@@ -67,6 +67,8 @@ spec:
           value: "30s"
         - name: ENABLE_UI
           value: "true"
+        - name: AI_API_KEY
+          value: "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"
         resources:
           requests:
             memory: "256Mi"

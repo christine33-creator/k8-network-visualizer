@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 
 // Configure axios defaults
 axios.defaults.baseURL = API_BASE_URL;
@@ -169,6 +169,12 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+
+// Generic fetch helper for TypeScript
+export async function fetchAPI<T>(endpoint: string): Promise<T> {
+  const response = await axios.get(endpoint);
+  return response.data;
+}
 
 // Export mock functions for development
 export const mockData = {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/christine33-creator/k8-network-visualizer/pkg/ai"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/graph"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -28,6 +29,7 @@ type SimulationResult struct {
 	Recommendations []string               `json:"recommendations"`
 	RiskLevel       string                 `json:"risk_level"`
 	Summary         string                 `json:"summary"`
+	AIAnalysis      string                 `json:"ai_analysis,omitempty"`
 }
 
 // ImpactAnalysis describes the impact of a change
@@ -57,6 +59,7 @@ type Simulator struct {
 	pods        map[string]*corev1.Pod
 	services    map[string]*corev1.Service
 	policies    map[string]*networkingv1.NetworkPolicy
+	aiClient    *ai.Client
 }
 
 // NewSimulator creates a new simulator instance
@@ -66,7 +69,13 @@ func NewSimulator(engine *graph.Engine) *Simulator {
 		pods:        make(map[string]*corev1.Pod),
 		services:    make(map[string]*corev1.Service),
 		policies:    make(map[string]*networkingv1.NetworkPolicy),
+		aiClient:    nil, // Will be set when API key is provided
 	}
+}
+
+// SetAIClient sets the AI client for enhanced analysis
+func (s *Simulator) SetAIClient(client *ai.Client) {
+	s.aiClient = client
 }
 
 // UpdateResources updates the simulator's view of cluster resources
@@ -157,6 +166,40 @@ func (s *Simulator) SimulateNetworkPolicy(policy *networkingv1.NetworkPolicy, ac
 		"NetworkPolicy '%s' in namespace '%s' will affect %d pods and potentially block %d connections. Risk level: %s",
 		policy.Name, policy.Namespace, result.Impact.TotalPodsAffected, result.Impact.BlockedConnections, result.RiskLevel,
 	)
+
+	// Generate AI analysis if available
+	if s.aiClient != nil {
+		context := fmt.Sprintf(`Current State:
+- Namespace: %s
+- Affected Pods: %d
+- Blocked Connections: %d
+- Affected Services: %d
+- Critical Paths Impacted: %d
+
+Policy Details:
+- Name: %s
+- Policy Types: %v
+- Ingress Rules: %d
+- Egress Rules: %d`,
+			policy.Namespace,
+			result.Impact.TotalPodsAffected,
+			result.Impact.BlockedConnections,
+			result.Impact.TotalServicesAffected,
+			len(result.Impact.CriticalPathsImpacted),
+			policy.Name,
+			policy.Spec.PolicyTypes,
+			len(policy.Spec.Ingress),
+			len(policy.Spec.Egress))
+
+		analysis, err := s.aiClient.GenerateScenarioAnalysis(
+			"NetworkPolicy Change",
+			fmt.Sprintf("Add/modify NetworkPolicy '%s' in namespace '%s'", policy.Name, policy.Namespace),
+			context,
+		)
+		if err == nil {
+			result.AIAnalysis = analysis
+		}
+	}
 
 	return result, nil
 }

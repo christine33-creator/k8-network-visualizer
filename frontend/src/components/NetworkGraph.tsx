@@ -361,6 +361,129 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       <Paper sx={{ flex: 1, position: "relative", overflow: "hidden" }}>
         <Box ref={containerRef} sx={{ width: "100%", height: "100%" }} />
 
+        {/* Legend */}
+        <Paper
+          sx={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            p: 2,
+            minWidth: 200,
+            backgroundColor: "rgba(255, 255, 255, 0.95)",
+          }}
+          elevation={2}
+        >
+          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: "bold" }}>
+            Legend
+          </Typography>
+          
+          {/* Node Shapes */}
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1, mb: 0.5 }}>
+            Node Types:
+          </Typography>
+          <Stack spacing={0.5}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 30,
+                  height: 20,
+                  borderRadius: "50%",
+                  border: "2px solid #9e9e9e",
+                  backgroundColor: "#f5f5f5",
+                }}
+              />
+              <Typography variant="caption">Pod (Circle)</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 0,
+                  height: 0,
+                  borderLeft: "10px solid transparent",
+                  borderRight: "10px solid transparent",
+                  borderBottom: "20px solid #9e9e9e",
+                  transform: "rotate(45deg)",
+                }}
+              />
+              <Typography variant="caption" sx={{ ml: 1 }}>Service (Diamond)</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 30,
+                  height: 20,
+                  border: "2px solid #9e9e9e",
+                  backgroundColor: "#f5f5f5",
+                }}
+              />
+              <Typography variant="caption">Node (Rectangle)</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 0,
+                  height: 0,
+                  borderLeft: "15px solid transparent",
+                  borderRight: "15px solid transparent",
+                  borderBottom: "20px solid #9e9e9e",
+                }}
+              />
+              <Typography variant="caption">Namespace (Triangle)</Typography>
+            </Box>
+          </Stack>
+
+          {/* Health Status */}
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2, mb: 0.5 }}>
+            Health Status:
+          </Typography>
+          <Stack spacing={0.5}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  backgroundColor: "#4caf50",
+                }}
+              />
+              <Typography variant="caption">Healthy</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  backgroundColor: "#ff9800",
+                }}
+              />
+              <Typography variant="caption">Degraded</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  backgroundColor: "#f44336",
+                }}
+              />
+              <Typography variant="caption">Failed</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  backgroundColor: "#9e9e9e",
+                }}
+              />
+              <Typography variant="caption">Unknown</Typography>
+            </Box>
+          </Stack>
+        </Paper>
+
         {selectedElement && (
           <Paper
             sx={{

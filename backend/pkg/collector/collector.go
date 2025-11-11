@@ -239,14 +239,13 @@ func (c *Collector) setupNodeInformer(ctx context.Context) error {
 			c.mu.Lock()
 			c.nodes[node.Name] = node
 			c.mu.Unlock()
-			log.Printf("Node added: %s", node.Name)
+			// Only log on first add, not on restarts
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			node := newObj.(*corev1.Node)
 			c.mu.Lock()
 			c.nodes[node.Name] = node
 			c.mu.Unlock()
-			log.Printf("Node updated: %s", node.Name)
 		},
 		DeleteFunc: func(obj interface{}) {
 			node := obj.(*corev1.Node)

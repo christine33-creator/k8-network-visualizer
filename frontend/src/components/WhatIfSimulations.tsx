@@ -55,6 +55,8 @@ interface SimulationResult {
   overall_risk: 'low' | 'medium' | 'high';
   confidence: number;
   timestamp: string;
+  ai_analysis?: string;
+  summary?: string;
 }
 
 interface WhatIfSimulationsProps {
@@ -128,55 +130,96 @@ const WhatIfSimulations: React.FC<WhatIfSimulationsProps> = ({ onRunSimulation }
 
   const handleRunSimulation = async () => {
     if (!currentSimulation.name || !currentSimulation.change) {
+      alert('Please provide both a name and description for the simulation');
       return;
     }
 
     setIsRunning(true);
     try {
-      // Mock simulation for demo - in real app this would call the backend
-      const mockResult: SimulationResult = {
-        id: `sim-${Date.now()}`,
-        request: { ...currentSimulation },
-        connectivity_impact: [
-          {
-            area: 'Pod-to-Pod Communication',
-            description: 'May affect communication between pods in different namespaces',
-            risk: 'medium',
-            likelihood: 0.7
-          },
-          {
-            area: 'External Access',
-            description: 'Will block access to external APIs and services',
-            risk: 'high',
-            likelihood: 0.9
-          }
-        ],
-        security_impact: [
-          {
-            area: 'Attack Surface',
-            description: 'Significantly reduces attack surface by blocking external traffic',
-            risk: 'low',
-            likelihood: 0.95
-          }
-        ],
-        performance_impact: [
-          {
-            area: 'Response Time',
-            description: 'Minor impact on applications requiring external dependencies',
-            risk: 'medium',
-            likelihood: 0.6
-          }
-        ],
-        overall_risk: 'medium',
-        confidence: 0.85,
-        timestamp: new Date().toISOString()
-      };
-
       if (onRunSimulation) {
         const result = await onRunSimulation(currentSimulation);
         setSimulations([result, ...simulations]);
       } else {
-        setSimulations([mockResult, ...simulations]);
+        // Call backend API
+        console.log('Sending simulation request:', {
+          type: currentSimulation.type,
+          name: currentSimulation.name,
+          description: currentSimulation.change,
+          namespace: currentSimulation.namespace,
+          parameters: currentSimulation.parameters,
+        });
+
+        const response = await fetch('/api/simulate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: currentSimulation.type,
+            name: currentSimulation.name,
+            description: currentSimulation.change,
+            namespace: currentSimulation.namespace,
+            parameters: currentSimulation.parameters,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Simulation failed (${response.status}): ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log('Simulation result:', result);
+        
+        // Transform backend result to frontend format
+        const simulationResult: SimulationResult = {
+          id: `sim-${Date.now()}`,
+          request: { ...currentSimulation },
+          connectivity_impact: [],
+          security_impact: [],
+          performance_impact: [],
+          overall_risk: result.risk_level || 'medium',
+          confidence: 0.85,
+          timestamp: new Date().toISOString(),
+          ai_analysis: result.ai_analysis || result.AIAnalysis,
+          summary: result.summary,
+        };
+
+        // Map affected flows to impact predictions
+        if (result.affected_flows && result.affected_flows.length > 0) {
+          result.affected_flows.forEach((flow: any) => {
+            simulationResult.connectivity_impact.push({
+              area: `${flow.source} → ${flow.destination}`,
+              description: flow.impact || 'Connection state will change',
+              risk: flow.new_state === 'blocked' ? 'high' : 'low',
+              likelihood: 0.9,
+            });
+          });
+        }
+
+        // Add recommendations as impact predictions
+        if (result.recommendations && result.recommendations.length > 0) {
+          result.recommendations.forEach((rec: string) => {
+            if (rec.toLowerCase().includes('critical') || rec.toLowerCase().includes('security')) {
+              simulationResult.security_impact.push({
+                area: 'Security Consideration',
+                description: rec,
+                risk: rec.toLowerCase().includes('critical') ? 'high' : 'medium',
+                likelihood: 0.8,
+              });
+            } else {
+              simulationResult.performance_impact.push({
+                area: 'Recommendation',
+                description: rec,
+                risk: 'low',
+                likelihood: 0.7,
+              });
+            }
+          });
+        }
+
+        console.log('Transformed simulation result:', simulationResult);
+        setSimulations([simulationResult, ...simulations]);
       }
 
       // Reset form
@@ -187,6 +230,9 @@ const WhatIfSimulations: React.FC<WhatIfSimulationsProps> = ({ onRunSimulation }
         namespace: 'default',
         parameters: {}
       });
+    } catch (error) {
+      console.error('Simulation error:', error);
+      alert(`Failed to run simulation: ${error}`);
     } finally {
       setIsRunning(false);
     }
@@ -329,6 +375,19 @@ const WhatIfSimulations: React.FC<WhatIfSimulationsProps> = ({ onRunSimulation }
         </Box>
       </Paper>
 
+      {/* Loading Indicator */}
+      {isRunning && (
+        <Paper sx={{ p: 3, mb: 3, textAlign: 'center' }}>
+          <LinearProgress sx={{ mb: 2 }} />
+          <Typography variant="h6" gutterBottom>
+            Running Simulation...
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Analyzing the impact of "{currentSimulation.name}" on your cluster
+          </Typography>
+        </Paper>
+      )}
+
       {/* Simulation Results */}
       {simulations.length > 0 && (
         <Box>
@@ -383,7 +442,42 @@ const WhatIfSimulations: React.FC<WhatIfSimulationsProps> = ({ onRunSimulation }
                     {result.request.change}
                   </Typography>
 
+                  {/* Summary Section */}
+                  {result.summary && (
+                    <Paper sx={{ p: 2, mb: 2, backgroundColor: '#e3f2fd', border: '1px solid #2196f3' }}>
+                      <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+                        📊 Summary
+                      </Typography>
+                      <Typography variant="body2">
+                        {result.summary}
+                      </Typography>
+                    </Paper>
+                  )}
+
                   <Divider sx={{ my: 2 }} />
+
+                  {/* AI Analysis Section */}
+                  {result.ai_analysis && (
+                    <>
+                      <Paper sx={{ p: 2, backgroundColor: '#f5f5f5', border: '1px solid #e0e0e0' }}>
+                        <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          🤖 AI-Powered Analysis
+                        </Typography>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            whiteSpace: 'pre-wrap', 
+                            fontFamily: 'monospace',
+                            fontSize: '0.875rem',
+                            lineHeight: 1.6
+                          }}
+                        >
+                          {result.ai_analysis}
+                        </Typography>
+                      </Paper>
+                      <Divider sx={{ my: 2 }} />
+                    </>
+                  )}
 
                   {/* Impact Categories */}
                   <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 2 }}>
