@@ -1,0 +1,16 @@
+[0;32m[INFO][0m Starting Network Flow Visualization Setup
+[0;32m[INFO][0m ==========================================
+[0;32m[INFO][0m Checking prerequisites...
+[0;32m[INFO][0m All prerequisites met
+[0;32m[INFO][0m Setting up minikube with Cilium...
+[0;32m[INFO][0m Starting minikube...
+* minikube v1.36.0 on Ubuntu 22.04 (amd64)
+* minikube 1.37.0 is available! Download it: https://github.com/kubernetes/minikube/releases/tag/v1.37.0
+* To disable this notice, run: 'minikube config set WantUpdateNotification false'
+
+* Using the docker driver based on existing profile
+! You cannot change the memory size for an existing minikube cluster. Please first delete the cluster.
+! You cannot change the CPUs for an existing minikube cluster. Please first delete the cluster.
+* Starting "minikube" primary control-plane node in "minikube" cluster
+* Pulling base image v0.0.47 ...
+* Restarting existing docker container for "minikube" ...

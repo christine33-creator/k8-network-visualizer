@@ -17,10 +17,12 @@ import (
 	"github.com/christine33-creator/k8-network-visualizer/pkg/analyzer"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/collector"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/correlation"
+	"github.com/christine33-creator/k8-network-visualizer/pkg/flowcollector"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/graph"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/k8s"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/prober"
 	"github.com/christine33-creator/k8-network-visualizer/pkg/simulator"
+	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -71,7 +73,15 @@ var (
 	namespace      = flag.String("namespace", "", "Namespace to watch (empty for all namespaces)")
 	prometheusURL  = flag.String("prometheus-url", "http://localhost:9090", "Prometheus server URL for metrics collection")
 	aiAPIKey       = flag.String("ai-api-key", "", "OpenRouter AI API key for enhanced analysis")
+	hubbleAddr     = flag.String("hubble-addr", "hubble-relay.kube-system.svc.cluster.local:80", "Hubble relay address for flow collection")
+	enableFlows    = flag.Bool("enable-flows", false, "Enable network flow collection (CNI-agnostic)")
 )
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for development
+	},
+}
 
 func main() {
 	flag.Parse()
@@ -79,6 +89,16 @@ func main() {
 	// Set up logging
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	log.Println("Starting Kubernetes Network Visualizer...")
+
+	// Override flags from environment variables if set
+	if os.Getenv("ENABLE_FLOWS") == "true" {
+		*enableFlows = true
+	}
+	
+	// Override flags with environment variables if set
+	if os.Getenv("ENABLE_FLOWS") == "true" {
+		*enableFlows = true
+	}
 
 	// Create context that can be cancelled
 	ctx, cancel := context.WithCancel(context.Background())
@@ -134,6 +154,48 @@ func main() {
 		log.Println("Correlation engine initialized successfully")
 	}
 
+	// Initialize Universal Flow Collector (CNI-agnostic)
+	var flowCollector flowcollector.FlowCollectorInterface
+	var anomalyDetector *flowcollector.AnomalyDetector
+	var collectorType flowcollector.CollectorType
+	
+	if *enableFlows {
+		log.Println("Initializing Universal Flow Collector...")
+		log.Println("🌐 CNI-Agnostic: Works with Cilium, Calico, Flannel, Weave, or no CNI")
+		log.Println("🌐 Service Mesh-Agnostic: Works with or without Istio, Linkerd, etc.")
+		log.Println("🌐 Universal: Uses kernel conntrack + iptables (works everywhere)")
+		
+		// Auto-detect and create best available collector
+		factory := flowcollector.NewCollectorFactory(ctx)
+		var err error
+		flowCollector, collectorType, err = factory.CreateCollector()
+		if err != nil {
+			log.Printf("Warning: Failed to create flow collector: %v", err)
+			flowCollector = nil
+		} else {
+			log.Printf("✓ Flow collector initialized: %s", collectorType)
+			// TODO: Re-enable anomaly detector after fixing type compatibility
+			// anomalyDetector = flowcollector.NewAnomalyDetector()
+			
+			// Start flow collection
+			go func() {
+				if err := flowCollector.Start(); err != nil {
+					log.Printf("Flow collection error: %v", err)
+				}
+			}()
+			
+			// Start pod IP cache updates (for universal collector)
+			go updatePodIPCache(ctx, networkCollector, flowCollector)
+			
+			// Start flow analysis (without anomaly detection for now)
+			go startFlowAnalysisSimple(ctx, flowCollector, graphEngine)
+			
+			log.Println("Flow collection started successfully")
+		}
+	} else {
+		log.Println("Flow collection disabled (use -enable-flows to enable)")
+	}
+
 	// Start data collection
 	log.Println("Starting data collection...")
 	go networkCollector.Start(ctx)
@@ -172,6 +234,16 @@ func main() {
 		log.Println("Correlation API endpoints registered")
 	}
 	
+	// Flow collection endpoints
+	if flowCollector != nil {
+		mux.HandleFunc("/api/flows", flowsHandler(flowCollector))
+		mux.HandleFunc("/api/flows/metrics", flowMetricsHandler(flowCollector))
+		mux.HandleFunc("/api/flows/anomalies", flowAnomaliesHandler(anomalyDetector))
+		mux.HandleFunc("/api/flows/active", activeFlowsHandler(graphEngine))
+		mux.HandleFunc("/ws/flows", flowWebSocketHandler(flowCollector))
+		log.Println("Flow API endpoints registered")
+	}
+	
 	// WebSocket endpoint for real-time updates
 	mux.HandleFunc("/ws", websocketHandler(graphEngine))
 
@@ -181,10 +253,10 @@ func main() {
 		mux.Handle("/", fs)
 	}
 
-	// Start HTTP server
+	// Start HTTP server with CORS middleware
 	server := &http.Server{
 		Addr:    *addr,
-		Handler: mux,
+		Handler: corsMiddleware(mux),
 	}
 
 	log.Printf("Server starting on %s", *addr)
@@ -204,6 +276,26 @@ func main() {
 		log.Printf("Server shutdown error: %v", err)
 	}
 	log.Println("Server stopped")
+}
+
+// corsMiddleware adds CORS headers to all responses
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Max-Age", "3600")
+		
+		// Handle preflight requests
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		// Call the next handler
+		next.ServeHTTP(w, r)
+	})
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -966,6 +1058,190 @@ func websocketHandler(engine *graph.Engine) http.HandlerFunc {
 	}
 }
 
+// Flow-related handlers
+
+func startFlowAnalysis(ctx context.Context, collector flowcollector.FlowCollectorInterface, detector *flowcollector.AnomalyDetector, engine *graph.Engine) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Get flow metrics
+			metrics := collector.GetFlowMetrics()
+			
+			// Update baselines
+			detector.UpdateBaseline(metrics)
+			
+			// Analyze for anomalies
+			flows := collector.GetFlows(1000)
+			anomalies := detector.AnalyzeFlows(flows, metrics)
+			
+			if len(anomalies) > 0 {
+				log.Printf("Detected %d network anomalies", len(anomalies))
+			}
+			
+			// Update graph engine with flow data
+			for key, metric := range metrics {
+				flowData := &graph.FlowData{
+					BytesPerSec:     metric.BytesPerSec,
+					PacketsPerSec:   metric.PacketsPerSec,
+					ConnectionCount: int64(metric.ConnectionCount),
+					ErrorRate:       metric.ErrorRate,
+					Protocol:        metric.Protocol,
+					LastSeen:        metric.LastSeen.Format(time.RFC3339),
+					IsActive:        time.Since(metric.LastSeen) < 30*time.Second,
+					Direction:       metric.Direction,
+				}
+				
+				// Generate edge IDs from source/dest pod names
+				sourceID := fmt.Sprintf("%s/%s", metric.SourceNamespace, metric.SourcePod)
+				destID := fmt.Sprintf("%s/%s", metric.DestNamespace, metric.DestPod)
+				
+				_ = key // Avoid unused variable
+				engine.UpdateEdgeFlowData(sourceID, destID, flowData)
+			}
+		}
+	}
+}
+
+// startFlowAnalysisSimple updates the graph without anomaly detection
+func startFlowAnalysisSimple(ctx context.Context, collector flowcollector.FlowCollectorInterface, engine *graph.Engine) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Get flow metrics
+			metrics := collector.GetFlowMetrics()
+			
+			// Update graph engine with flow data
+			for _, metric := range metrics {
+				flowData := &graph.FlowData{
+					BytesPerSec:     metric.BytesPerSec,
+					PacketsPerSec:   metric.PacketsPerSec,
+					ConnectionCount: int64(metric.ConnectionCount),
+					ErrorRate:       metric.ErrorRate,
+					Protocol:        metric.Protocol,
+					LastSeen:        metric.LastSeen.Format(time.RFC3339),
+					IsActive:        time.Since(metric.LastSeen) < 30*time.Second,
+					Direction:       metric.Direction,
+				}
+				
+				// Generate edge IDs from source/dest pod names
+				sourceID := fmt.Sprintf("%s/%s", metric.SourceNamespace, metric.SourcePod)
+				destID := fmt.Sprintf("%s/%s", metric.DestNamespace, metric.DestPod)
+				
+				engine.UpdateEdgeFlowData(sourceID, destID, flowData)
+			}
+			
+			// Log stats
+			stats := collector.GetStats()
+			log.Printf("Flow stats: %+v", stats)
+		}
+	}
+}
+
+func flowsHandler(collector flowcollector.FlowCollectorInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 100 // Default limit
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			fmt.Sscanf(limitStr, "%d", &limit)
+		}
+		
+		flows := collector.GetFlows(limit)
+		
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(flows); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func flowMetricsHandler(collector flowcollector.FlowCollectorInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		metrics := collector.GetFlowMetrics()
+		
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(metrics); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func flowAnomaliesHandler(detector *flowcollector.AnomalyDetector) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 50 // Default limit
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			fmt.Sscanf(limitStr, "%d", &limit)
+		}
+		
+		// Filter by severity if provided
+		severity := r.URL.Query().Get("severity")
+		var anomalies []flowcollector.Anomaly
+		if severity != "" {
+			anomalies = detector.GetAnomaliesBySeverity(severity)
+		} else {
+			anomalies = detector.GetAnomalies(limit)
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(anomalies); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func activeFlowsHandler(engine *graph.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		flows := engine.GetActiveFlows()
+		
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(flows); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func flowWebSocketHandler(collector flowcollector.FlowCollectorInterface) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("WebSocket upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+		
+		log.Println("Flow WebSocket client connected")
+		
+		// Stream flows periodically since we're using polling-based collector
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ticker.C:
+				flows := collector.GetFlows(50)
+				if err := conn.WriteJSON(flows); err != nil {
+					log.Printf("WebSocket write error: %v", err)
+					return
+				}
+			case <-time.After(30 * time.Second):
+				// Send ping to keep connection alive
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					log.Printf("WebSocket ping error: %v", err)
+					return
+				}
+			}
+		}
+	}
+}
+
 // Helper functions for pod status calculation
 func isPodReady(pod *corev1.Pod) bool {
 	for _, condition := range pod.Status.Conditions {
@@ -982,4 +1258,37 @@ func getPodRestartCount(pod *corev1.Pod) int32 {
 		totalRestarts += containerStatus.RestartCount
 	}
 	return totalRestarts
+}
+
+// updatePodIPCache keeps the universal flow collector's IP->Pod mapping up to date
+func updatePodIPCache(ctx context.Context, networkCollector *collector.Collector, flowCollector flowcollector.FlowCollectorInterface) {
+	// Check if this is a universal collector that needs IP caching
+	universalCollector, ok := flowCollector.(*flowcollector.UniversalFlowCollector)
+	if !ok {
+		return // Not a universal collector, no caching needed
+	}
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Get all pods from collector
+			pods := networkCollector.GetPods()
+			
+			// Update IP cache for each pod
+			for _, pod := range pods {
+				if pod.Status.PodIP != "" {
+					universalCollector.UpdatePodIPCache(pod.Status.PodIP, flowcollector.PodInfo{
+						Name:      pod.Name,
+						Namespace: pod.Namespace,
+						Labels:    pod.Labels,
+					})
+				}
+			}
+		}
+	}
 }

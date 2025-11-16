@@ -55,9 +55,10 @@ spec:
         app: network-visualizer
     spec:
       serviceAccountName: network-visualizer
+      # hostNetwork: true  # Disabled - causing service routing issues, and tools not installed anyway
       containers:
       - name: backend
-        image: k8s-network-visualizer:latest
+        image: network-visualizer:latest
         imagePullPolicy: Never
         ports:
         - containerPort: 8080
@@ -67,8 +68,21 @@ spec:
           value: "30s"
         - name: ENABLE_UI
           value: "true"
+        - name: ENABLE_FLOWS
+          value: "true"
         - name: AI_API_KEY
-          value: "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"
+          valueFrom:
+            secretKeyRef:
+              name: openrouter-api-key
+              key: api-key
+              optional: true
+        # Security context for accessing kernel network features
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN  # Required for conntrack/iptables access
+            - NET_RAW    # Required for packet inspection
+          privileged: false  # We don't need full privileges, just NET_ADMIN
         resources:
           requests:
             memory: "256Mi"

@@ -17,10 +17,15 @@ import {
   Button,
   Checkbox,
   FormControlLabel,
-  SelectChangeEvent
+  SelectChangeEvent,
+  Alert,
+  Badge
 } from "@mui/material";
 import FilterListIcon from '@mui/icons-material/FilterList';
 import ClearIcon from '@mui/icons-material/Clear';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import WarningIcon from '@mui/icons-material/Warning';
+import { apiClient, NetworkFlow, FlowAnomaly } from '../services/api';
 
 // Register the fcose layout
 // @ts-ignore - Type compatibility issue with cytoscape versions
@@ -59,16 +64,21 @@ interface NetworkGraphProps {
   topology: NetworkTopology | null;
   onNodeClick?: (node: GraphNode) => void;
   onEdgeClick?: (edge: GraphEdge) => void;
+  enableFlowAnimation?: boolean;
 }
 
 const NetworkGraph: React.FC<NetworkGraphProps> = ({
   topology,
   onNodeClick,
   onEdgeClick,
+  enableFlowAnimation = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const [selectedElement, setSelectedElement] = useState<any>(null);
+  const [flowAnomalies, setFlowAnomalies] = useState<FlowAnomaly[]>([]);
+  const [activeFlowCount, setActiveFlowCount] = useState(0);
+  const wsRef = useRef<WebSocket | null>(null);
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -122,6 +132,84 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       policy: "dotted",
     };
     return styles[type];
+  };
+
+  const getEdgeWidth = (edge: any): number => {
+    // Base width on flow data if available
+    if (edge.flow_data && edge.flow_data.bytes_per_sec > 0) {
+      const bytesPerSec = edge.flow_data.bytes_per_sec;
+      // Scale width based on throughput (log scale for better visualization)
+      const width = 2 + Math.log10(bytesPerSec + 1) * 2;
+      return Math.min(width, 15); // Max width of 15
+    }
+    return 2;
+  };
+
+  const formatBandwidth = (bytesPerSec: number): string => {
+    if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`;
+    if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+    return `${(bytesPerSec / 1024 / 1024).toFixed(2)} MB/s`;
+  };
+
+  // Fetch flow anomalies
+  useEffect(() => {
+    if (!enableFlowAnimation) return;
+
+    const fetchAnomalies = async () => {
+      try {
+        const anomalies = await apiClient.getFlowAnomalies();
+        setFlowAnomalies(anomalies);
+      } catch (error) {
+        console.error('Error fetching flow anomalies:', error);
+      }
+    };
+
+    fetchAnomalies();
+    const interval = setInterval(fetchAnomalies, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [enableFlowAnimation]);
+
+  // WebSocket connection for real-time flows
+  useEffect(() => {
+    if (!enableFlowAnimation || !cyRef.current) return;
+
+    try {
+      const ws = apiClient.connectFlowStream((flow: NetworkFlow) => {
+        if (!cyRef.current) return;
+
+        // Animate flow on the graph
+        animateFlow(flow);
+      });
+
+      wsRef.current = ws;
+
+      return () => {
+        if (wsRef.current) {
+          wsRef.current.close();
+        }
+      };
+    } catch (error) {
+      console.error('Error connecting to flow stream:', error);
+    }
+  }, [enableFlowAnimation, topology]);
+
+  // Animate a single flow
+  const animateFlow = (flow: NetworkFlow) => {
+    if (!cyRef.current) return;
+
+    const sourceId = `pod/${flow.source_namespace}/${flow.source_pod.split('/')[1]}`;
+    const destId = `pod/${flow.dest_namespace}/${flow.dest_pod.split('/')[1]}`;
+
+    const edge = cyRef.current.edges(`[source = "${sourceId}"][target = "${destId}"]`);
+    if (edge.length === 0) return;
+
+    // Create flowing particle effect
+    edge.flashClass('flowing', 1000);
+    
+    // Update active flow count
+    setActiveFlowCount(prev => prev + 1);
+    setTimeout(() => setActiveFlowCount(prev => Math.max(0, prev - 1)), 1000);
   };
 
   // Extract namespaces from topology
@@ -282,17 +370,35 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
         {
           selector: "edge",
           style: {
-            width: 2,
+            width: (ele: any) => getEdgeWidth(ele.data()),
             "line-color": (ele: any) => getEdgeColor(ele.data()),
             "target-arrow-color": (ele: any) => getEdgeColor(ele.data()),
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
             "line-style": (ele: any) => getEdgeStyle(ele.data("edgeType")),
-            label: (ele: any) =>
-              ele.data("latency") ? `${ele.data("latency")}ms` : "",
+            label: (ele: any) => {
+              const data = ele.data();
+              if (data.flow_data && data.flow_data.bytes_per_sec > 0) {
+                return formatBandwidth(data.flow_data.bytes_per_sec);
+              }
+              return data.latency ? `${data.latency}ms` : "";
+            },
             "font-size": "8px",
             "text-rotation": "autorotate",
             "text-margin-y": -10,
+            "opacity": (ele: any) => {
+              const data = ele.data();
+              return data.flow_data && data.flow_data.is_active ? 1.0 : 0.5;
+            },
+          },
+        },
+        {
+          selector: "edge.flowing",
+          style: {
+            "line-color": "#2196f3",
+            "target-arrow-color": "#2196f3",
+            "opacity": 1.0,
+            "width": (ele: any) => getEdgeWidth(ele.data()) + 2,
           },
         },
       ],
@@ -342,12 +448,30 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Top bar */}
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Stack direction="row" spacing={2} alignItems="center">
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           <Typography variant="h6">Network Topology</Typography>
           {topology && (
             <>
               <Chip label={`${topology.nodes.length} Nodes`} size="small" />
               <Chip label={`${topology.edges.length} Connections`} size="small" />
+              {enableFlowAnimation && activeFlowCount > 0 && (
+                <Badge badgeContent={activeFlowCount} color="primary">
+                  <Chip 
+                    icon={<TrendingUpIcon />}
+                    label="Active Flows" 
+                    size="small" 
+                    color="primary" 
+                  />
+                </Badge>
+              )}
+              {flowAnomalies.length > 0 && (
+                <Chip 
+                  icon={<WarningIcon />}
+                  label={`${flowAnomalies.length} Anomalies`} 
+                  size="small" 
+                  color="warning" 
+                />
+              )}
               <Typography variant="caption" color="text.secondary">
                 Last updated:{" "}
                 {new Date(topology.timestamp).toLocaleTimeString()}
@@ -355,6 +479,20 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
             </>
           )}
         </Stack>
+        {flowAnomalies.length > 0 && (
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            {flowAnomalies.slice(0, 3).map((anomaly, idx) => (
+              <Typography key={idx} variant="caption" display="block">
+                • {anomaly.title}: {anomaly.description}
+              </Typography>
+            ))}
+            {flowAnomalies.length > 3 && (
+              <Typography variant="caption" color="text.secondary">
+                ... and {flowAnomalies.length - 3} more
+              </Typography>
+            )}
+          </Alert>
+        )}
       </Paper>
 
       {/* Graph */}
@@ -528,6 +666,32 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
                 <Typography variant="body2">
                   <strong>Latency:</strong> {selectedElement.latency}ms
                 </Typography>
+              )}
+              {selectedElement.flow_data && (
+                <>
+                  <Typography variant="subtitle2" sx={{ mt: 1 }}>Flow Metrics:</Typography>
+                  <Typography variant="body2">
+                    <strong>Bandwidth:</strong> {formatBandwidth(selectedElement.flow_data.bytes_per_sec)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Packets/sec:</strong> {selectedElement.flow_data.packets_per_sec.toFixed(1)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Connections:</strong> {selectedElement.flow_data.connection_count}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Error Rate:</strong> {(selectedElement.flow_data.error_rate * 100).toFixed(2)}%
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Protocol:</strong> {selectedElement.flow_data.protocol}
+                  </Typography>
+                  <Chip
+                    label={selectedElement.flow_data.is_active ? "Active" : "Inactive"}
+                    color={selectedElement.flow_data.is_active ? "success" : "default"}
+                    size="small"
+                    sx={{ mt: 0.5 }}
+                  />
+                </>
               )}
               {selectedElement.properties && (
                 <>

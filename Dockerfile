@@ -47,8 +47,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o k8s-netvis cmd/ma
 # Stage 4: Final image
 FROM alpine:3.18
 
-# Install ca-certificates for HTTPS
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates for HTTPS and network tools for flow collection
+RUN apk --no-cache add ca-certificates conntrack-tools iptables
 
 WORKDIR /app
 

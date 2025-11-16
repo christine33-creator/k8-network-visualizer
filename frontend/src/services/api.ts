@@ -47,8 +47,60 @@ export interface NetworkTopology {
     health: 'healthy' | 'degraded' | 'failed' | 'unknown';
     latency_ms?: number;
     packet_loss?: number;
+    flow_data?: FlowData;
   }>;
   timestamp: string;
+}
+
+export interface FlowData {
+  bytes_per_sec: number;
+  packets_per_sec: number;
+  connection_count: number;
+  error_rate: number;
+  protocol: string;
+  last_seen: string;
+  is_active: boolean;
+  direction: string;
+}
+
+export interface NetworkFlow {
+  id: string;
+  source_pod: string;
+  source_ip: string;
+  source_port: number;
+  source_namespace: string;
+  dest_pod: string;
+  dest_ip: string;
+  dest_port: number;
+  dest_namespace: string;
+  protocol: string;
+  flow_type: string;
+  bytes_sent: number;
+  packets_sent: number;
+  direction: string;
+  is_reply: boolean;
+  verdict: string;
+  drop_reason?: string;
+  l7_protocol?: string;
+  timestamp: string;
+}
+
+export interface FlowAnomaly {
+  id: string;
+  type: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  title: string;
+  description: string;
+  source_pod: string;
+  dest_pod?: string;
+  evidence: {
+    current_value: number;
+    baseline_value: number;
+    threshold: number;
+    details?: Record<string, string>;
+  };
+  detected_at: string;
+  score: number;
 }
 
 export interface NetworkIssue {
@@ -165,6 +217,58 @@ class ApiClient {
   async getHealthStatus(): Promise<any> {
     const response = await axios.get('/health');
     return response.data;
+  }
+
+  // Flow-related methods
+  async getFlows(limit?: number): Promise<NetworkFlow[]> {
+    const params = limit ? { limit } : {};
+    const response = await axios.get('/flows', { params });
+    return response.data;
+  }
+
+  async getFlowMetrics(): Promise<any[]> {
+    const response = await axios.get('/flows/metrics');
+    return response.data;
+  }
+
+  async getFlowAnomalies(severity?: string): Promise<FlowAnomaly[]> {
+    const params = severity ? { severity } : {};
+    const response = await axios.get('/flows/anomalies', { params });
+    return response.data;
+  }
+
+  async getActiveFlows(): Promise<any[]> {
+    const response = await axios.get('/flows/active');
+    return response.data;
+  }
+
+  // WebSocket connection for real-time flows
+  connectFlowStream(onFlow: (flow: NetworkFlow) => void): WebSocket {
+    const wsUrl = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://').replace('/api', '');
+    const ws = new WebSocket(`${wsUrl}/ws/flows`);
+    
+    ws.onopen = () => {
+      console.log('Flow WebSocket connected');
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const flow = JSON.parse(event.data);
+        onFlow(flow);
+      } catch (error) {
+        console.error('Error parsing flow data:', error);
+      }
+    };
+    
+    ws.onerror = (error) => {
+      console.error('Flow WebSocket error:', error);
+    };
+    
+    ws.onclose = () => {
+      console.log('Flow WebSocket closed');
+    };
+    
+    return ws;
   }
 }
 

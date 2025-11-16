@@ -52,6 +52,20 @@ type GraphEdge struct {
 	Health     HealthStatus      `json:"health"`
 	Latency    int64             `json:"latency_ms,omitempty"`
 	PacketLoss float64           `json:"packet_loss,omitempty"`
+	// Flow metrics
+	FlowData   *FlowData         `json:"flow_data,omitempty"`
+}
+
+// FlowData represents real-time network flow information
+type FlowData struct {
+	BytesPerSec     float64 `json:"bytes_per_sec"`
+	PacketsPerSec   float64 `json:"packets_per_sec"`
+	ConnectionCount int64   `json:"connection_count"`
+	ErrorRate       float64 `json:"error_rate"`
+	Protocol        string  `json:"protocol"`
+	LastSeen        string  `json:"last_seen"`
+	IsActive        bool    `json:"is_active"`
+	Direction       string  `json:"direction"` // bidirectional, ingress, egress
 }
 
 // HealthStatus represents the health of a node or edge
@@ -341,6 +355,52 @@ func (e *Engine) UpdateEdgeHealth(edgeID string, health HealthStatus, latency in
 		edge.Health = health
 		edge.Latency = latency
 	}
+}
+
+// UpdateEdgeFlowData updates flow data for an edge
+func (e *Engine) UpdateEdgeFlowData(sourceID, targetID string, flowData *FlowData) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	edgeID := fmt.Sprintf("%s->%s", sourceID, targetID)
+	edge, exists := e.edges[edgeID]
+	if !exists {
+		// Create edge if it doesn't exist
+		edge = &GraphEdge{
+			ID:     edgeID,
+			Source: sourceID,
+			Target: targetID,
+			Type:   EdgeTypeConnection,
+			Health: HealthHealthy,
+		}
+		e.edges[edgeID] = edge
+	}
+
+	edge.FlowData = flowData
+	
+	// Update health based on flow metrics
+	if flowData.ErrorRate > 0.1 {
+		edge.Health = HealthFailed
+	} else if flowData.ErrorRate > 0.05 {
+		edge.Health = HealthDegraded
+	} else if flowData.IsActive {
+		edge.Health = HealthHealthy
+	}
+}
+
+// GetActiveFlows returns edges with active flow data
+func (e *Engine) GetActiveFlows() []GraphEdge {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var activeFlows []GraphEdge
+	for _, edge := range e.edges {
+		if edge.FlowData != nil && edge.FlowData.IsActive {
+			activeFlows = append(activeFlows, *edge)
+		}
+	}
+
+	return activeFlows
 }
 
 // Clear removes all nodes and edges from the graph
