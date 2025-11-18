@@ -1,177 +1,268 @@
-# Kubernetes Network Visualizer & Debugger
+# 🚀 Kubernetes Network Visualizer
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.21-blue.svg)](https://go.dev/)
-[![React Version](https://img.shields.io/badge/React-18.2-blue.svg)](https://reactjs.org/)
+Real-time interactive visualization and anomaly detection for Kubernetes clusters.
+
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+## 📖 Overview
+
+Kubernetes Network Visualizer is a web-based tool that provides real-time visualization of your Kubernetes cluster topology, complete with intelligent anomaly detection. It helps DevOps teams, developers, and security engineers understand their cluster's network architecture and quickly identify configuration issues.
+
+### ✨ Key Features
+
+- **Interactive Graph Visualization** - Powered by Cytoscape.js
+- **Real-time Updates** - Cluster state refreshed every 10 seconds
+- **Smart Anomaly Detection** - Automatically detects 6 types of configuration issues
+- **Advanced Search & Filtering** - Find resources quickly
+- **Multiple Graph Layouts** - Force-directed, hierarchical, circular, and grid
+- **Color-coded Health Status** - Instant visual feedback
+- **Hover-to-Reveal Connections** - Clean UI that shows edges on demand
 
 ## 🎯 Problem Statement
 
-Networking issues in Azure Kubernetes Service (AKS) and other Kubernetes environments are notoriously difficult to debug:
-- Connectivity drops between services
-- Misconfigured services and endpoints
-- Overlapping CIDRs causing routing issues
-- Complex WireGuard/Konnectivity configurations
-- Network policy conflicts
-- DNS resolution failures
+Working with Kubernetes networking is challenging:
+- No visual representation of cluster topology
+- Configuration mistakes are hard to spot
+- Debugging connectivity issues requires multiple kubectl commands
+- Network policy conflicts are difficult to identify
 
-## 💡 Solution
-
-A comprehensive tool that automatically visualizes and debugs Kubernetes network topology, providing:
-- **Real-time network topology visualization** between pods, nodes, and external services
-- **Automated health checks** with continuous connectivity monitoring
-- **"What-if" simulations** to predict the impact of policy changes
-- **Intelligent root cause analysis** for connectivity issues
-- **Both Web UI and CLI interfaces** for different use cases
+This tool solves these problems with an intuitive, visual interface.
 
 ## 🏗️ Architecture
 
-### Components
+```
+┌─────────────────┐
+│   React UI      │  ← Cytoscape.js Graph Visualization
+│  (Frontend)     │  ← Search, Filter, Layout Controls
+└────────┬────────┘
+         │ HTTP/WebSocket
+┌────────▼────────┐
+│  Flask API      │  ← Kubernetes Python Client
+│   (Backend)     │  ← Anomaly Detection Engine
+└────────┬────────┘
+         │ REST API
+┌────────▼────────┐
+│  Kubernetes     │  ← Pods, Services, Nodes
+│    Cluster      │  ← Network Policies, Events
+└─────────────────┘
+```
 
-1. **Data Collector** (Go-based controller)
-   - Queries Kubernetes API for network resources
-   - Performs lightweight connectivity probes
-   - Collects metrics and logs
+## 🚨 Anomaly Detection
 
-2. **Analysis Engine**
-   - Processes data into graph model
-   - Detects and diagnoses network issues
-   - Enriches failures with probable causes
+The system automatically detects:
 
-3. **Visualization Layer**
-   - Interactive web UI with D3.js/Cytoscape.js
-   - Real-time updates via WebSocket
-   - Detailed debug information panels
-
-4. **CLI Tool**
-   - Quick debugging without web UI
-   - Scriptable for CI/CD pipelines
-   - Export capabilities for reports
+- 🔵 **Configuration Problems** - Services with selectors that don't match pods
+- 🔴 **Connectivity Failures** - Pods in Failed/Pending state
+- 🟠 **DNS Resolution Issues** - Custom DNS preventing service discovery
+- 🟡 **Network Policy Conflicts** - Overlapping policies on same pods
+- ⚪ **Security Gaps** - Missing network policies
+- 🟣 **Resource Constraints** - Pods with excessive restarts
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Kubernetes cluster (AKS, EKS, GKE, or local)
+
+- Kubernetes cluster (Minikube, Kind, or any K8s cluster)
 - kubectl configured
-- Helm 3.x (optional)
-- Go 1.21+ (for development)
-- Node.js 18+ (for frontend development)
+- Docker (for building images)
 
 ### Installation
 
-#### Using Helm
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/[your-username]/network-visualizer.git
+   cd network-visualizer
+   ```
+
+2. **Build the Docker image**
+   ```bash
+   # For Minikube
+   eval $(minikube docker-env)
+   docker build -t network-visualizer:latest -f backend/Dockerfile.python .
+   ```
+
+3. **Deploy to Kubernetes**
+   ```bash
+   kubectl apply -f k8s/deployment.yaml
+   ```
+
+4. **Wait for pod to be ready**
+   ```bash
+   kubectl wait --for=condition=ready pod -l app=network-visualizer -n network-visualizer --timeout=60s
+   ```
+
+5. **Access the UI**
+   ```bash
+   kubectl port-forward -n network-visualizer svc/network-visualizer 8080:8080
+   ```
+
+6. **Open browser**
+   ```
+   http://localhost:8080
+   ```
+
+## 📚 Demo Application
+
+To see the visualizer in action with sample microservices:
+
 ```bash
-helm repo add k8s-net-viz https://christine33-creator.github.io/k8-network-visualizer
-helm install network-visualizer k8s-net-viz/network-visualizer
+# Deploy demo application
+kubectl apply -f demo-app.yaml
+
+# Deploy anomaly scenarios
+kubectl apply -f anomaly-scenarios.yaml
 ```
 
-#### Using kubectl
-```bash
-kubectl apply -f https://raw.githubusercontent.com/christine33-creator/k8-network-visualizer/main/deploy/manifests/all-in-one.yaml
-```
+This creates:
+- 3 Frontend pods
+- 2 Backend API pods
+- 1 Redis database
+- 2 Payment service pods
+- Traffic generators
+- Several intentional misconfigurations for anomaly detection
 
-#### CLI Installation
-```bash
-# Linux/macOS
-curl -L https://github.com/christine33-creator/k8-network-visualizer/releases/latest/download/k8s-netvis-$(uname -s)-$(uname -m) -o k8s-netvis
-chmod +x k8s-netvis
-sudo mv k8s-netvis /usr/local/bin/
+## 🎨 Usage
 
-# Using Go
-go install github.com/christine33-creator/k8-network-visualizer/cli/cmd@latest
-```
+### Interactive Graph
 
-## 📊 Features
+- **Hover** over nodes to reveal connections
+- **Click** nodes to view detailed information
+- **Drag** nodes to rearrange the graph
+- **Zoom** and pan to explore
 
-### Network Topology Visualization
-- **Interactive Graph**: Pan, zoom, and filter network connections
-- **Color-coded Health Status**: Green (healthy), Yellow (degraded), Red (failed)
-- **Hierarchical Layout**: Organize by namespace, node, or service
+### Search & Filter
 
-### Health Monitoring
-- **Continuous Probing**: TCP, HTTP, gRPC health checks
-- **Latency Tracking**: Response time measurements
-- **Packet Loss Detection**: Identify unreliable connections
+- **Search bar** - Type pod/service/namespace names
+- **Status filter** - Show only healthy/degraded/failed resources
+- **Type filter** - Filter by pods/services/nodes
+- **Layout options** - Switch between different graph algorithms
 
-### Debugging Capabilities
-- **Root Cause Analysis**: Automatic detection of common issues
-- **Policy Validation**: Check NetworkPolicy conflicts
-- **DNS Troubleshooting**: Resolve and validate DNS configurations
-- **Firewall Detection**: Identify blocked traffic patterns
+### Detected Issues
 
-### What-If Simulations
-- **Policy Impact Analysis**: Preview effects of NetworkPolicy changes
-- **Service Mesh Integration**: Simulate Istio/Linkerd policy changes
-- **Failure Scenarios**: Test resilience to node/pod failures
+Check the "DETECTED ISSUES" panel in the sidebar to see:
+- Issue type and severity
+- Affected resources
+- Remediation recommendations
 
-## 🛠️ Development
+## 🛠️ Technology Stack
+
+**Frontend:**
+- React 18 with Hooks
+- Cytoscape.js (graph visualization)
+- WebSocket for real-time updates
+- Vanilla CSS
+
+**Backend:**
+- Python 3.11
+- Flask (web framework)
+- Kubernetes Python Client
+- Flask-CORS
+
+**Infrastructure:**
+- Docker
+- Kubernetes RBAC
+- Minikube (local development)
+
+## 📊 API Endpoints
+
+- `GET /api/topology` - Full cluster topology
+- `GET /api/flows` - Network flow data
+- `GET /api/flows/metrics` - Flow statistics
+- `GET /api/metrics/traffic` - Traffic metrics
+- `GET /api/metrics/connections` - Connection metrics
+- `GET /api/metrics/errors` - Error metrics
+- `GET /api/issues` - Detected anomalies
+- `WS /ws/flows` - Real-time flow streaming
+
+## 🔒 Security & RBAC
+
+The application uses Kubernetes RBAC with:
+- **ServiceAccount**: `network-visualizer`
+- **ClusterRole**: Read-only access to:
+  - Pods, Services, Nodes, Namespaces
+  - Deployments, ReplicaSets, DaemonSets, StatefulSets
+  - NetworkPolicies, Ingresses
+
+No write permissions - completely read-only.
+
+## 🔧 Development
 
 ### Backend Development
+
 ```bash
 cd backend
-go mod init github.com/christine33-creator/k8-network-visualizer
-go get k8s.io/client-go@latest
-go get k8s.io/apimachinery@latest
-go run cmd/main.go
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
 ```
 
 ### Frontend Development
+
+The frontend is a single HTML file with inline JavaScript (React via CDN).
+Edit `frontend/index.html` and refresh the browser.
+
+### Building Locally
+
 ```bash
-cd frontend
-npm install
-npm start
+# Build with Docker
+docker build -t network-visualizer:latest -f backend/Dockerfile.python .
+
+# For Minikube
+eval $(minikube docker-env)
+docker build -t network-visualizer:latest -f backend/Dockerfile.python .
+kubectl rollout restart deployment/network-visualizer -n network-visualizer
 ```
 
-### CLI Development
-```bash
-cd cli
-go build -o k8s-netvis cmd/main.go
-./k8s-netvis --help
-```
+## 🔮 Future Enhancements
 
-## 📝 Usage Examples
-
-### Web UI
-Access the web interface at `http://localhost:8080` after deployment.
-
-### CLI Examples
-```bash
-# Visualize current network topology
-k8s-netvis visualize --namespace default
-
-# Run health checks
-k8s-netvis health --all-namespaces
-
-# Simulate NetworkPolicy changes
-k8s-netvis simulate --policy new-policy.yaml
-
-# Export topology as JSON
-k8s-netvis export --format json --output network-topology.json
-```
+- [ ] Historical timeline and playback
+- [ ] Real eBPF-based traffic capture (vs simulated)
+- [ ] Multi-cluster support
+- [ ] Prometheus integration
+- [ ] AI-powered root cause analysis
+- [ ] Export reports (PDF/JSON)
+- [ ] Slack/Teams notifications
+- [ ] What-if scenario simulator
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
+This is a hackathon project, but contributions are welcome!
 
-## 📄 License
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## 📝 License
 
-## 🏆 Hackathon Information
+MIT License - feel free to use this in your own projects!
 
-This project is being developed for the Azure Kubernetes Service (AKS) Hackathon.
+## 🙏 Acknowledgments
 
-**Team**: Solo Developer
-**Contact**: christine33-creator
+- Built during [Hackathon Name]
+- Inspired by Weave Scope, Cilium Hubble, and Kubernetes Dashboard
+- Uses [Cytoscape.js](https://js.cytoscape.org/) for graph visualization
+- Kubernetes Python Client by the Kubernetes team
 
-## 🗺️ Roadmap
+## 📧 Contact
 
-- [x] Initial project structure
-- [ ] Core data collection service
-- [ ] Graph analysis engine
-- [ ] Basic web UI
-- [ ] CLI tool
-- [ ] Health check implementation
-- [ ] What-if simulation engine
-- [ ] Service mesh integration
-- [ ] Multi-cluster support
-- [ ] AI-powered root cause analysis
+- GitHub: [@your-username]
+- Email: your.email@example.com
+
+## 📸 Screenshots
+
+### Main Dashboard
+![Main Dashboard](docs/screenshots/dashboard.png)
+
+### Anomaly Detection
+![Anomaly Detection](docs/screenshots/anomalies.png)
+
+### Filtered View
+![Filtered View](docs/screenshots/filtered.png)
+
+---
+
+**Built with ❤️ for the Kubernetes community**
